@@ -1,26 +1,19 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#ifndef _MSC_VER
 #include <unistd.h>
+#else
+#include <io.h>
+/* https://learn.microsoft.com/en-us/cpp/c-runtime-library/reference/access-waccess?view=msvc-170 */
+#define F_OK 00
+#define W_OK 02
+#define R_OK 04
+#define X_OK (F_OK | W_OK | R_OK)
+#endif
 #include <fcntl.h>
 #include <sys/stat.h>
 #include "types.h"
-
-#if __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
-#define	U16B(x)			(x)
-#define	U32B(x)			(x)
-#define	U64B(x)			(x)
-#define	U16L(x)			__builtin_bswap16(x)
-#define	U32L(x)			__builtin_bswap32(x)
-#define	U64L(x)			__builtin_bswap64(x)
-#else
-#define	U16B(x)			__builtin_bswap16(x)
-#define	U32B(x)			__builtin_bswap32(x)
-#define	U64B(x)			__builtin_bswap64(x)
-#define	U16L(x)			(x)
-#define	U32L(x)			(x)
-#define	U64L(x)			(x)
-#endif
 
 typedef struct {
 	char	magic[4];
@@ -29,7 +22,7 @@ typedef struct {
 	char	type[4];
 	u32	unk2;
 	u32	unk3;
-} __attribute__((packed)) RFRMHeader;
+} ATTRIBUTE_PACKED RFRMHeader;
 
 typedef struct {
 	u32	size;
@@ -47,7 +40,7 @@ typedef struct {
 	u32	unk0[2];
 	u32	type;
 	u8	unk1[134];
-} __attribute__((packed)) CAUDSegment2;
+} ATTRIBUTE_PACKED CAUDSegment2;
 
 typedef struct {
 	u32	magic;
@@ -55,7 +48,7 @@ typedef struct {
 	u8	channels;
 	u8	unk2;
 	u8	unk3[3];
-} __attribute__((packed)) CSMPFMTA;
+} ATTRIBUTE_PACKED CSMPFMTA;
 
 typedef struct {
 	u32	magic;
@@ -64,7 +57,7 @@ typedef struct {
 	u8	unk2;
 	u8	unk3;
 	u8	data[3];
-} __attribute__((packed)) CSMPCRMS;
+} ATTRIBUTE_PACKED CSMPCRMS;
 
 typedef struct {
 	u32	magic;
@@ -80,7 +73,7 @@ typedef struct {
 	u32	loop_start_sample;
 	u32	loop_end_block;
 	u32	loop_end_sample;
-} __attribute__((packed)) CSMPRAS3;
+} ATTRIBUTE_PACKED CSMPRAS3;
 
 typedef struct {
 	u32	num_samples;
@@ -103,7 +96,7 @@ typedef struct {
 	u32	data_length;
 	u32	unk[4];
 	DSPHeader dsp[0];
-} __attribute__((packed)) CSMPDATA;
+} ATTRIBUTE_PACKED CSMPDATA;
 
 /* interleave is 0x10000 bytes */
 
@@ -212,7 +205,7 @@ void extract_csmp(const char* outfilename, CSMPDATA* data, size_t size, int chan
 	if(interleave) {
 		size_t filesize = data->data_length - channels * sizeof(DSPHeader);
 		blocks = filesize / channels / interleave;
-		printf("blocks: %ld\n", blocks);
+		printf("blocks: %zu\n", blocks);
 		if(blocks == 0) {
 			printf("short block detected\n");
 		}
@@ -233,7 +226,7 @@ void extract_csmp(const char* outfilename, CSMPDATA* data, size_t size, int chan
 	}
 
 	/* dump channel by channel */
-	for(unsigned int ch = 0; ch < channels; ch++) {
+	for(unsigned int ch = 0; ch < (unsigned int)channels; ch++) {
 		char filename[256];
 		if(channels == 1) {
 			sprintf(filename, "%s.dsp", outfilename);
@@ -276,7 +269,7 @@ void extract_csmp(const char* outfilename, CSMPDATA* data, size_t size, int chan
 
 		/* update initial PS / loop PS */
 		if(blocks == 0) {
-			printf("data start: %p\n", (uintptr_t) &dspdata[ch * bytes] - (uintptr_t) data);
+			printf("data start: %p\n", (void *)((uintptr_t) &dspdata[ch * bytes] - (uintptr_t) data));
 			if(data->dsp[ch].ps != dspdata[ch * bytes]) {
 				printf("WARNING: ps mismatch found on channel %d: 0x%02X vs 0x%02X (short)\n", ch, dspdata[ch * bytes], data->dsp[ch].ps);
 			}
@@ -288,7 +281,7 @@ void extract_csmp(const char* outfilename, CSMPDATA* data, size_t size, int chan
 			}
 		} else {
 			u8* ch_start = &dspdata[ch * interleave + padding];
-			printf("data start: %p\n", (uintptr_t) ch_start - (uintptr_t) data);
+			printf("data start: %p\n", (void *)((uintptr_t) ch_start - (uintptr_t) data));
 			if(data->dsp[ch].ps != *ch_start) {
 				printf("WARNING: ps mismatch found on channel %d: 0x%02X vs 0x%02X\n", ch, *ch_start, data->dsp[ch].ps);
 			}
@@ -328,7 +321,7 @@ void extract_csmp(const char* outfilename, CSMPDATA* data, size_t size, int chan
 			if(padding == 0) {
 				writeall(fd, &dspdata[ch * interleave], interleave);
 			} else {
-				writeall(fd, &dspdata[ch * interleave + padding], interleave - padding);
+				writeall(fd, &dspdata[ch * interleave + padding], ((ssize_t)interleave) - padding);
 			}
 
 			/* remaining blocks */
@@ -434,8 +427,8 @@ void load_csmp(const char* filename, const char* outfilename)
 				printf("loop start: %d:%d => sa=%d\n", ras3->loop_start_block, ras3->loop_start_sample, sa);
 				printf("loop end: %d:%d => ea=%d\n", ras3->loop_end_block, ras3->loop_end_sample, ea);
 				printf("loop: %d\n", loop);
-				printf("unk0 = 0x%016lx (%lu)\n", ras3->unk0, ras3->unk0);
-				printf("unk1 = 0x%016lx (%lu)\n", ras3->unk1, ras3->unk1);
+				printf("unk0 = 0x%016llx (%llu)\n", ras3->unk0, ras3->unk0);
+				printf("unk1 = 0x%016llx (%llu)\n", ras3->unk1, ras3->unk1);
 				printf("unk2 = 0x%08x (%u)\n", ras3->unk2, ras3->unk2);
 				break;
 			}
@@ -451,9 +444,9 @@ void load_csmp(const char* filename, const char* outfilename)
 				printf("loop start: %d / %d\n", data->dsp[0].sa, data->dsp[1].sa);
 				printf("loop end: %d / %d\n", data->dsp[0].ea, data->dsp[1].ea);
 				printf("ca: %d / %d\n", data->dsp[0].ca, data->dsp[1].ca);
-				printf("data starts at: %p\n", (uintptr_t) &data->dsp[2] - (uintptr_t) csmp);
+				printf("data starts at: %p\n", (void *)((uintptr_t) &data->dsp[2] - (uintptr_t) csmp));
 				size_t size = buf.st_size - ((uintptr_t) &data->dsp[2] - (uintptr_t) csmp);
-				printf("data size: %ld\n", size);
+				printf("data size: %zu\n", size);
 				printf("data size (including DSP headers): %d\n", data->data_length);
 				extract_csmp(outfilename, data, size, channels, interleave, pad, loop, sa, ea);
 				free(csmp);
@@ -504,7 +497,7 @@ int main(int argc, char** argv)
 	readall(fd, caud, buf.st_size);
 	close(fd);
 
-	char* name = (char*) malloc(caud->name_length + 1);
+	char* name = (char*) malloc(((size_t)caud->name_length) + 1);
 	if(name == NULL) {
 		perror("malloc");
 		return 1;

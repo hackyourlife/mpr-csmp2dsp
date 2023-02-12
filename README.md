@@ -9,14 +9,23 @@ System Requirements
 
 - a POSIX compatible system with a C compiler
 
+- or a Visual Studio C++ compiler
+
 
 Building
 ========
+
+On POSIX:
 
 ```sh
 gcc -o csmp csmp.c
 ```
 
+In Visual Studio:
+
+- Open `./vc/mpr-csmp2dsp/mpr-csmp2dsp.sln`
+
+- Build the solution
 
 Usage
 =====
