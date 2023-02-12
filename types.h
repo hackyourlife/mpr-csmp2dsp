@@ -49,7 +49,36 @@ typedef int		bool;
 #define _BV(x)		(1L << (x))
 #endif
 
+#ifdef _MSC_VER
+#define	ATTRIBUTE_ALGIN(x)  __declspec(align(x))
+#define ATTRIBUTE_PACKED __pragma(pack(1))
+#else
 #define	ATTRIBUTE_ALGIN(x)	__attribute__((aligned(x)))
+#define ATTRIBUTE_PACKED __attribute__((packed))
+#endif
+
+#ifdef _MSC_VER
+#define __builtin_bswap16 _byteswap_ushort
+#define __builtin_bswap32 _byteswap_ulong
+#define __builtin_bswap64 _byteswap_uint64
+#define __ORDER_LITTLE_ENDIAN__ 1
+#define __ORDER_BIG_ENDIAN__ 2
+#define __ORDER_PDP_ENDIAN__ 3
+
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
+#include <Windows.h>
+typedef SSIZE_T ssize_t;
+
+/* It is very unlikely that anyone in their right mind would actually
+   try to compile this program for WinNT/PowerPC though, but still... */
+#ifdef _M_PPC
+#define __BYTE_ORDER__ __ORDER_BIG_ENDIAN__
+#else
+#define __BYTE_ORDER__ __ORDER_LITTLE_ENDIAN__
+#endif
+
+#endif
 
 #if __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
 #define U16B(x)		(x)
