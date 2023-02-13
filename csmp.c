@@ -15,51 +15,74 @@
 #include <sys/stat.h>
 #include "types.h"
 
-typedef struct {
-	char	magic[4];
+#ifdef _DEBUG
+
+#define SIZE_ASSERT(_Type, _Size) \
+	static int _Size_Chk_ ## _Type [(sizeof(_Type) == (_Size)) ? 1 : -1]
+
+#else
+
+#define SIZE_ASSERT(_Type, _Size) /* nothing for Release builds */
+
+#endif
+
+typedef struct ATTRIBUTE_PACKED {
+	u8	magic[4];
 	u64	data_size;
 	u64	unk1;
-	char	type[4];
+	u8	type[4];
 	u32	unk2;
 	u32	unk3;
-} ATTRIBUTE_PACKED RFRMHeader;
+} RFRMHeader;
 
-typedef struct {
+SIZE_ASSERT(RFRMHeader, 32);
+
+typedef struct ATTRIBUTE_ALIGN(4) {
 	u32	size;
 	u32	id1;
 	u32	id2;
 } SampleInfo;
 
-typedef struct {
+SIZE_ASSERT(SampleInfo, 12);
+
+typedef struct ATTRIBUTE_ALIGN(4) {
 	RFRMHeader rfrm;
 	u32	name_length;
-	char	name[0];
+	u8	name[0];
 } CAUD;
 
-typedef struct {
+SIZE_ASSERT(CAUD, 36);
+
+typedef struct ATTRIBUTE_PACKED {
 	u32	unk0[2];
 	u32	type;
 	u8	unk1[134];
-} ATTRIBUTE_PACKED CAUDSegment2;
+} CAUDSegment2;
 
-typedef struct {
+SIZE_ASSERT(CAUDSegment2, 146);
+
+typedef struct ATTRIBUTE_PACKED {
 	u32	magic;
 	u32	unk1[5];
 	u8	channels;
 	u8	unk2;
 	u8	unk3[3];
-} ATTRIBUTE_PACKED CSMPFMTA;
+} CSMPFMTA;
 
-typedef struct {
+SIZE_ASSERT(CSMPFMTA, 29);
+
+typedef struct ATTRIBUTE_PACKED {
 	u32	magic;
 	u32	size;
 	u32	unk[4];
 	u8	unk2;
 	u8	unk3;
 	u8	data[3];
-} ATTRIBUTE_PACKED CSMPCRMS;
+} CSMPCRMS;
 
-typedef struct {
+SIZE_ASSERT(CSMPCRMS, 29);
+
+typedef struct ATTRIBUTE_PACKED {
 	u32	magic;
 	u64	unk0;
 	u64	unk1;
@@ -73,9 +96,11 @@ typedef struct {
 	u32	loop_start_sample;
 	u32	loop_end_block;
 	u32	loop_end_sample;
-} ATTRIBUTE_PACKED CSMPRAS3;
+} CSMPRAS3;
 
-typedef struct {
+SIZE_ASSERT(CSMPRAS3, 60);
+
+typedef struct ATTRIBUTE_ALIGN(4) {
 	u32	num_samples;
 	u32	num_adpcm_nibbles;
 	u32	sample_rate;
@@ -91,12 +116,16 @@ typedef struct {
 	u32	pad[13];
 } DSPHeader;
 
-typedef struct {
+SIZE_ASSERT(DSPHeader, 128);
+
+typedef struct ATTRIBUTE_PACKED {
 	u32	magic;
 	u32	data_length;
 	u32	unk[4];
 	DSPHeader dsp[0];
-} ATTRIBUTE_PACKED CSMPDATA;
+} CSMPDATA;
+
+SIZE_ASSERT(CSMPDATA, 24);
 
 /* interleave is 0x10000 bytes */
 
@@ -190,7 +219,7 @@ int get_csmp_name(char* csmpname, CAUDSegment2* info)
 	filename[41] = 0;
 
 	/* check for file existence */
-	sprintf(csmpname, "files/%s", filename);
+	sprintf(csmpname, "files" PATHSEPSTR "%s", filename);
 	return access(csmpname, R_OK) == 0;
 }
 
@@ -222,7 +251,7 @@ void extract_csmp(const char* outfilename, CSMPDATA* data, size_t size, int chan
 	if(!interleave) {
 		/* no interleave: channels are just concatenated one after another */
 		size_t filesize = data->data_length - channels * sizeof(DSPHeader);
-		bytes = (filesize + channels - 1) / channels;
+		bytes = (unsigned int)((filesize + channels - 1) / channels);
 	}
 
 	/* dump channel by channel */
@@ -240,6 +269,7 @@ void extract_csmp(const char* outfilename, CSMPDATA* data, size_t size, int chan
 		int fd = open(filename, O_WRONLY | O_CREAT, 0644);
 		if(fd == -1) {
 			perror("open");
+			return;
 		}
 
 		/* endianess swap DSP header */
@@ -300,17 +330,20 @@ void extract_csmp(const char* outfilename, CSMPDATA* data, size_t size, int chan
 		}
 
 		printf("CHANNEL %d\n", ch);
-		printf("num_samples: %d\n", U32B(hdr.num_samples));
-		printf("num_adpcm_nibbles: %d\n", U32B(hdr.num_adpcm_nibbles));
-		printf("sample_rate: %d\n", U32B(hdr.sample_rate));
+		printf("num_samples: %u\n", U32B(hdr.num_samples));
+		printf("num_adpcm_nibbles: %u\n", U32B(hdr.num_adpcm_nibbles));
+		printf("sample_rate: %u\n", U32B(hdr.sample_rate));
 		printf("loop_flag: %d\n", U16B(hdr.loop_flag));
 		printf("format: %d\n", U16B(hdr.format));
-		printf("sa: %d, ea: %d, ca: %d\n", U32B(hdr.sa), U32B(hdr.ea), U32B(hdr.ca));
+		printf("sa: %u, ea: %u, ca: %u\n", U32B(hdr.sa), U32B(hdr.ea), U32B(hdr.ca));
 		printf("gain: %d, ps: %d, yn1: %d, yn2: %d\n", U16B(hdr.gain), U16B(hdr.ps), U16B(hdr.yn1), U16B(hdr.yn2));
 		printf("lps: %d, lyn1: %d, lyn2: %d\n", U16B(hdr.lps), U16B(hdr.lyn1), U16B(hdr.lyn2));
 
 		/* write DSP header */
-		write(fd, &hdr, 96);
+		if (write(fd, &hdr, 96) < 0) {
+			perror("write");
+			return;
+		}
 
 		/* write audio data */
 		if(blocks == 0 || channels == 1) {
@@ -371,7 +404,7 @@ void load_csmp(const char* filename, const char* outfilename)
 	}
 
 	char csmpfilename[256];
-	sprintf(csmpfilename, "csmp/%s.csmp", outfilename);
+	sprintf(csmpfilename, "csmp" PATHSEPSTR "%s.csmp", outfilename);
 	fd = open(csmpfilename, O_WRONLY | O_CREAT, 0644);
 	if(fd != -1) {
 		writeall(fd, csmp, buf.st_size);
@@ -507,7 +540,7 @@ int main(int argc, char** argv)
 
 	CAUDSegment2* info = (CAUDSegment2*) ((uintptr_t) caud->name + caud->name_length);
 
-	u32 len = buf.st_size - ((uintptr_t) info - (uintptr_t) caud);
+	u32 len = (u32)(buf.st_size - ((uintptr_t) info - (uintptr_t) caud));
 
 	if(memcmp(caud->rfrm.magic, "RFRM", 4)) {
 		printf("invalid magic: expected RFRM, got %c%c%c%c\n", caud->rfrm.magic[0], caud->rfrm.magic[1], caud->rfrm.magic[2], caud->rfrm.magic[3]);
